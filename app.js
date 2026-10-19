@@ -1,11 +1,12 @@
 /**
  * 活動幸運抽獎系統 (GitHub Pages 前端應用程式)
- * 
+ *
  * 核心功能：
  * 1. 介接 Google Apps Script (GAS) doGet API 獲取人員名單與獎品設定。
  * 2. 獎品切換與配額計算 (Prize Selection and Quota Display)。
  * 3. 前端真亂數抽獎與動畫舞台 (Random Participant Drawing)。
  * 4. 中獎紀錄分組展示、localStorage 狀態持久化與 CSV 匯出 (Winner Record Tracking and History)。
+ * 5. 參加者身分識別：以固定識別鍵 (key) 與系統識別碼 (rowUids) 對應中獎紀錄，名單重排或重新載入後不混淆。
  */
 
 (function () {
@@ -18,8 +19,18 @@
     DATA_CACHE: 'lottery_cached_data'
   };
 
-  // 內建展示示範資料（大學校園活動抽獎示範）
+  // 識別方式顯示名稱
+  const KEY_TYPE_LABELS = {
+    sid: '學號',
+    code: '活動識別碼',
+    tel: '手機',
+    row: '系統識別碼',
+    legacy: '舊版紀錄'
+  };
+
+  // 內建展示示範資料（大學校園活動抽獎示範，格式同 GAS API schemaVersion 2）
   const DEMO_DATA = {
+    schemaVersion: 2,
     prizes: [
       { id: 'demo_p1', name: '頭獎：Apple iPad Air (256GB)', quota: 1, order: 1, description: '特獎校園高效學習首選' },
       { id: 'demo_p2', name: '二獎：Sony 降噪藍牙耳機', quota: 2, order: 2, description: '專注讀書聽歌神器' },
@@ -27,31 +38,55 @@
       { id: 'demo_p4', name: '幸運獎：星巴克飲品兌換券', quota: 10, order: 4, description: '期中期末暖心咖啡' }
     ],
     participants: [
-      { id: 'B11902001', name: '陳冠宇', department: '資訊工程學系', grade: '大三', email: 'b11902001@school.edu.tw' },
-      { id: 'B12703015', name: '林若晴', department: '財務金融學系', grade: '大二', email: 'b12703015@school.edu.tw' },
-      { id: 'B10102033', name: '張凱翔', department: '外國語文學系', grade: '大四', email: 'b10102033@school.edu.tw' },
-      { id: 'B13501008', name: '黃子庭', department: '生物機電學系', grade: '大一', email: 'b13501008@school.edu.tw' },
-      { id: 'R12521019', name: '吳家瑋', department: '電機工程研究所', grade: '碩二', email: 'r12521019@school.edu.tw' },
-      { id: 'B11201042', name: '許雅筑', department: '歷史學系', grade: '大三', email: 'b11201042@school.edu.tw' },
-      { id: 'B12901024', name: '楊宗翰', department: '土木工程學系', grade: '大二', email: 'b12901024@school.edu.tw' },
-      { id: 'B10302011', name: '蔡欣妤', department: '化學工程學系', grade: '大四', email: 'b10302011@school.edu.tw' },
-      { id: 'B13105022', name: '劉宇恆', department: '中國文學系', grade: '大一', email: 'b13105022@school.edu.tw' },
-      { id: 'B11602017', name: '周佩穎', department: '社會學系', grade: '大三', email: 'b11602017@school.edu.tw' },
-      { id: 'B12304005', name: '鄭兆廷', department: '機械工程學系', grade: '大二', email: 'b12304005@school.edu.tw' },
-      { id: 'B10902050', name: '謝宜萱', department: '醫學系', grade: '大四', email: 'b10902050@school.edu.tw' },
-      { id: 'B13801016', name: '郭哲銘', department: '法律學系', grade: '大一', email: 'b13801016@school.edu.tw' },
-      { id: 'R13622003', name: '曾詩婷', department: '經濟學研究所', grade: '碩一', email: 'r13622003@school.edu.tw' },
-      { id: 'B11401039', name: '梁詠晴', department: '心理學系', grade: '大三', email: 'b11401039@school.edu.tw' }
+      demoStudent('B11902001', '陳冠宇', '資訊工程學系', '大三'),
+      demoStudent('B12703015', '林若晴', '財務金融學系', '大二'),
+      demoStudent('B10102033', '張凱翔', '外國語文學系', '大四'),
+      demoStudent('B13501008', '黃子庭', '生物機電學系', '大一'),
+      demoStudent('R12521019', '吳家瑋', '電機工程研究所', '碩二'),
+      demoStudent('B11201042', '許雅筑', '歷史學系', '大三'),
+      demoStudent('B12901024', '楊宗翰', '土木工程學系', '大二'),
+      demoStudent('B10302011', '蔡欣妤', '化學工程學系', '大四'),
+      demoStudent('B13105022', '劉宇恆', '中國文學系', '大一'),
+      demoStudent('B11602017', '周佩穎', '社會學系', '大三'),
+      demoStudent('B12304005', '鄭兆廷', '機械工程學系', '大二'),
+      demoStudent('B10902050', '謝宜萱', '醫學系', '大四'),
+      demoStudent('B13801016', '郭哲銘', '法律學系', '大一'),
+      demoStudent('R13622003', '曾詩婷', '經濟學研究所', '碩一'),
+      demoStudent('B11401039', '梁詠晴', '心理學系', '大三'),
+      // 無學號參加者：同名不同人、共用號碼、活動識別碼、僅系統識別碼
+      demoParticipant({ key: 'tel:demo16', keyType: 'tel', rowUids: ['demo-row-16'], phoneMasked: '0933-***-512', name: '陳冠宇', department: '企業管理學系', grade: '大一' }),
+      demoParticipant({ key: 'tel:demo17', keyType: 'tel', rowUids: ['demo-row-17'], phoneMasked: '0922-***-108', name: '林小美', department: '化學工程學系', grade: '大四', flags: ['shared_phone'] }),
+      demoParticipant({ key: 'tel:demo18', keyType: 'tel', rowUids: ['demo-row-18'], phoneMasked: '0922-***-108', name: '林大明', department: '化學工程學系', grade: '大二', flags: ['shared_phone'] }),
+      demoParticipant({ key: 'code:A7K2Q9', keyType: 'code', rowUids: ['demo-row-19'], eventCode: 'A7K2Q9', name: '王曉明', department: '校外來賓' }),
+      demoParticipant({ key: 'row:demo-row-20', keyType: 'row', rowUids: ['demo-row-20'], name: '李宜蓁', department: '歷史學系', grade: '大二', flags: ['no_alt_id'] })
+    ],
+    warnings: [
+      { type: 'shared_phone', message: '共用同一手機號碼：林小美、林大明，已視為不同人。', rows: [17, 18] }
     ]
   };
+
+  function demoParticipant(fields) {
+    return Object.assign({
+      key: '', keyType: '', rowUids: [], studentId: '', eventCode: '', phoneMasked: '',
+      name: '', department: '', grade: '', email: '', flags: [], duplicateCount: 1
+    }, fields);
+  }
+
+  function demoStudent(studentId, name, department, grade) {
+    return demoParticipant({
+      key: 'sid:' + studentId, keyType: 'sid', rowUids: ['demo-row-' + studentId], studentId: studentId,
+      name: name, department: department, grade: grade, email: studentId.toLowerCase() + '@school.edu.tw'
+    });
+  }
 
   // 應用程式狀態模型
   const state = {
     apiUrl: '',
     prizes: [],
     participants: [],
+    warnings: [],
     currentPrizeId: null,
-    winners: [], // 格式: [{ winnerId, name, department, prizeId, prizeName, timestamp }]
+    winners: [], // 格式: [{ participantKey, keyType, rowUids, identityValue, name, department, grade, email, phoneMasked, prizeId, prizeName, timestamp }]
     isRolling: false,
     rollIntervalId: null
   };
@@ -71,6 +106,7 @@
       // 若尚無資料，自動載入展示資料提供即時體驗
       loadData(DEMO_DATA);
     } else {
+      reconcileWinners();
       updateUI();
     }
   }
@@ -100,6 +136,10 @@
       stagePlaceholder: domEl('.stage-placeholder'),
       btnDraw: document.getElementById('btn-draw'),
       drawWarning: document.getElementById('draw-warning'),
+
+      identityWarnings: document.getElementById('identity-warnings'),
+      identityWarningsTitle: document.getElementById('identity-warnings-title'),
+      identityWarningsList: document.getElementById('identity-warnings-list'),
 
       winnersListContainer: document.getElementById('winners-list-container'),
       btnExportCsv: document.getElementById('btn-export-csv'),
@@ -142,15 +182,15 @@
 
       const savedWinners = localStorage.getItem(STORAGE_KEYS.WINNERS);
       if (savedWinners) {
-        state.winners = JSON.parse(savedWinners);
+        state.winners = JSON.parse(savedWinners).map(migrateLegacyWinner);
+        persistWinners();
       }
 
       const cachedData = localStorage.getItem(STORAGE_KEYS.DATA_CACHE);
       if (cachedData) {
         const parsed = JSON.parse(cachedData);
         if (parsed.prizes && parsed.participants) {
-          state.prizes = parsed.prizes;
-          state.participants = parsed.participants;
+          applyDataset(parsed);
           if (state.prizes.length > 0) {
             state.currentPrizeId = state.prizes[0].id;
           }
@@ -202,7 +242,8 @@
       state.apiUrl = url;
       localStorage.setItem(STORAGE_KEYS.API_URL, url);
       loadData(json);
-      showStatusMessage(`連線成功！共載入 ${json.prizes.length} 項獎品與 ${json.participants.length} 位人員。`, 'success');
+      const warningText = state.warnings.length > 0 ? `，${state.warnings.length} 則名單提醒` : '';
+      showStatusMessage(`連線成功！共載入 ${state.prizes.length} 項獎品與 ${state.participants.length} 位人員${warningText}。`, 'success');
       dom.configPanel.classList.add('hidden');
     } catch (err) {
       showStatusMessage('連線失敗：' + err.message + ' (請確認 Web App 發布權限為 Anyone)', 'error');
@@ -215,14 +256,15 @@
    * 載入資料並更新狀態
    */
   function loadData(data) {
-    state.prizes = data.prizes || [];
-    state.participants = data.participants || [];
+    applyDataset(data);
 
     // 快取資料至 LocalStorage
     try {
       localStorage.setItem(STORAGE_KEYS.DATA_CACHE, JSON.stringify({
+        schemaVersion: 2,
         prizes: state.prizes,
-        participants: state.participants
+        participants: state.participants,
+        warnings: state.warnings
       }));
     } catch (e) {}
 
@@ -235,7 +277,162 @@
       state.currentPrizeId = null;
     }
 
+    reconcileWinners();
     updateUI();
+  }
+
+  /**
+   * 將 API 資料寫入狀態；舊版 API（無 schemaVersion）的人員資料會轉換為識別鍵格式
+   */
+  function applyDataset(data) {
+    state.prizes = data.prizes || [];
+    state.warnings = (data.warnings || []).slice();
+
+    const raw = data.participants || [];
+    if (data.schemaVersion >= 2) {
+      state.participants = raw.map(p => Object.assign({ rowUids: [], flags: [], duplicateCount: 1 }, p));
+      return;
+    }
+
+    const adapted = raw.map(adaptLegacyParticipant);
+    state.participants = adapted.filter(p => p.key);
+    const dropped = adapted.length - state.participants.length;
+    if (dropped > 0) {
+      state.warnings.push({
+        type: 'identity_missing',
+        message: `${dropped} 位人員缺少穩定識別資料（舊版 API 以列號產生編號），已排除於抽獎名單。請更新 GAS 後端至最新版本。`,
+        rows: []
+      });
+    }
+  }
+
+  /**
+   * 舊版人員格式 { id, name, ... } 轉換：只有真正的學號才能作為識別鍵
+   */
+  function adaptLegacyParticipant(p) {
+    const sid = normalizeLegacyId(p.id);
+    return {
+      key: sid ? 'sid:' + sid : '',
+      keyType: sid ? 'sid' : '',
+      rowUids: [],
+      studentId: sid,
+      eventCode: '',
+      phoneMasked: '',
+      name: p.name || '',
+      department: p.department || '',
+      grade: p.grade || '',
+      email: p.email || '',
+      flags: [],
+      duplicateCount: 1
+    };
+  }
+
+  /**
+   * 舊版編號正規化；`s_N`、`user_N` 是依列號產生的編號，視為無效
+   */
+  function normalizeLegacyId(id) {
+    const text = String(id || '').normalize('NFKC').replace(/\s+/g, '');
+    if (!text || /^(s|user)_\d+$/.test(text)) return '';
+    return text.toUpperCase();
+  }
+
+  /**
+   * 舊版中獎紀錄 { winnerId, ... } 遷移為識別鍵格式
+   */
+  function migrateLegacyWinner(w) {
+    if (w.participantKey) return Object.assign({ rowUids: [] }, w);
+    const sid = normalizeLegacyId(w.winnerId);
+    return {
+      participantKey: sid ? 'sid:' + sid : 'legacy:' + (w.winnerId || w.timestamp),
+      keyType: sid ? 'sid' : 'legacy',
+      rowUids: [],
+      identityValue: sid || String(w.winnerId || ''),
+      name: w.name || '',
+      department: w.department || '',
+      grade: w.grade || '',
+      email: w.email || '',
+      phoneMasked: '',
+      prizeId: w.prizeId,
+      prizeName: w.prizeName,
+      timestamp: w.timestamp
+    };
+  }
+
+  /**
+   * 重新載入名單後，對齊中獎紀錄：
+   * - 獎品 id 對不上但名稱相同時（舊版 prize_N），改用新的獎品 id。
+   * - 補上對應參加者目前的所有系統識別碼，確保補填學號等識別資料變更後仍判定為已中獎。
+   */
+  function reconcileWinners() {
+    let changed = false;
+    state.winners.forEach(w => {
+      if (!state.prizes.some(p => p.id === w.prizeId)) {
+        const sameName = state.prizes.find(p => p.name === w.prizeName);
+        if (sameName) {
+          w.prizeId = sameName.id;
+          changed = true;
+        }
+      }
+
+      const current = findParticipantForWinner(w);
+      if (current) {
+        current.rowUids.forEach(uid => {
+          if (w.rowUids.indexOf(uid) < 0) {
+            w.rowUids.push(uid);
+            changed = true;
+          }
+        });
+      }
+    });
+    if (changed) persistWinners();
+  }
+
+  /**
+   * 依識別鍵或系統識別碼，在目前名單中找出中獎者
+   */
+  function findParticipantForWinner(w) {
+    return state.participants.find(p => p.key === w.participantKey) ||
+      state.participants.find(p => p.rowUids.some(uid => w.rowUids.indexOf(uid) >= 0)) ||
+      null;
+  }
+
+  /**
+   * 判斷人員是否已中獎（識別鍵或任一系統識別碼相符即視為同一人）
+   */
+  function isAlreadyWon(p, winners) {
+    const list = winners || state.winners;
+    return list.some(w => w.participantKey === p.key || p.rowUids.some(uid => w.rowUids.indexOf(uid) >= 0));
+  }
+
+  /**
+   * 取得識別值（學號／活動碼／遮罩手機／系統識別碼）
+   */
+  function getIdentityValue(p) {
+    switch (p.keyType) {
+      case 'sid': return p.studentId;
+      case 'code': return p.eventCode;
+      case 'tel': return p.phoneMasked;
+      case 'row': return p.rowUids[0] || '';
+      default: return '';
+    }
+  }
+
+  /**
+   * 舞台與名冊上用來區分同名者的識別標示
+   */
+  function getDisplayId(keyType, identityValue) {
+    if (!identityValue) return '';
+    switch (keyType) {
+      case 'sid': return '#' + identityValue;
+      case 'code': return '#活動碼 ' + identityValue;
+      case 'tel': return '☎ ' + identityValue;
+      case 'row': return '#系統碼 ' + identityValue.slice(0, 8);
+      default: return '#' + identityValue;
+    }
+  }
+
+  function getParticipantMeta(p) {
+    return [p.department, p.grade, getDisplayId(p.keyType, getIdentityValue(p))].filter(Boolean).join(' ');
   }
 
   /**
@@ -273,8 +470,7 @@
    * 取得尚未中獎之合格抽獎人員池
    */
   function getEligibleParticipants() {
-    const wonUserIds = new Set(state.winners.map(w => w.winnerId));
-    return state.participants.filter(p => !wonUserIds.has(p.id));
+    return state.participants.filter(p => !isAlreadyWon(p));
   }
 
   /**
@@ -283,6 +479,7 @@
   function updateUI() {
     renderPrizeOptions();
     updateStageAndStats();
+    renderIdentityWarnings();
     renderWinnersList();
   }
 
@@ -382,8 +579,7 @@
       const randomIndex = Math.floor(Math.random() * eligible.length);
       const tempPerson = eligible[randomIndex];
       dom.winnerCandidateName.textContent = tempPerson.name;
-      const meta = [tempPerson.department, tempPerson.grade, tempPerson.id ? '#' + tempPerson.id : ''].filter(Boolean).join(' ');
-      dom.winnerCandidateMeta.textContent = meta;
+      dom.winnerCandidateMeta.textContent = getParticipantMeta(tempPerson);
 
       const elapsed = Date.now() - startTime;
       if (elapsed < duration) {
@@ -418,16 +614,19 @@
     dom.rollingDisplay.classList.add('winner-won');
     dom.stagePlaceholder.textContent = '恭喜中獎！';
     dom.winnerCandidateName.textContent = winner.name;
-    const winnerMeta = [winner.department, winner.grade, winner.id ? '#' + winner.id : ''].filter(Boolean).join(' ');
-    dom.winnerCandidateMeta.textContent = winnerMeta;
+    dom.winnerCandidateMeta.textContent = getParticipantMeta(winner);
 
-    // 記錄中獎者
+    // 記錄中獎者（以識別鍵與系統識別碼對應，不依賴名單列序）
     const winnerRecord = {
-      winnerId: winner.id,
+      participantKey: winner.key,
+      keyType: winner.keyType,
+      rowUids: winner.rowUids.slice(),
+      identityValue: getIdentityValue(winner),
       name: winner.name,
       department: winner.department || '',
       grade: winner.grade || '',
       email: winner.email || '',
+      phoneMasked: winner.phoneMasked || '',
       prizeId: prize.id,
       prizeName: prize.name,
       timestamp: new Date().toLocaleString('zh-TW', { hour12: false })
@@ -451,6 +650,38 @@
     } catch (e) {
       console.warn('儲存中獎紀錄至 LocalStorage 失敗:', e);
     }
+  }
+
+  /**
+   * 渲染名單識別提醒（重複報名、共用號碼、學號衝突等）
+   */
+  function renderIdentityWarnings() {
+    dom.identityWarningsList.innerHTML = '';
+    if (state.warnings.length === 0) {
+      dom.identityWarnings.classList.add('hidden');
+      return;
+    }
+
+    dom.identityWarnings.classList.remove('hidden');
+    dom.identityWarningsTitle.textContent = `⚠️ 名單識別提醒（${state.warnings.length}）`;
+    state.warnings.forEach(w => {
+      const li = document.createElement('li');
+      li.textContent = w.message + (w.rows && w.rows.length ? `（試算表第 ${w.rows.join('、')} 列）` : '');
+      dom.identityWarningsList.appendChild(li);
+    });
+  }
+
+  /**
+   * 中獎紀錄與目前名單比對後的狀態標記
+   */
+  function getWinnerStatusTag(w) {
+    if (w.keyType === 'legacy') return '⚠ 舊版紀錄，請人工核對';
+    const current = findParticipantForWinner(w);
+    if (!current) return '⚠ 名單中已不存在';
+    if (current.key !== w.participantKey || current.name !== w.name) {
+      return `⚠ 資料已變更：目前為 ${current.name} ${getDisplayId(current.keyType, getIdentityValue(current))}`.trim();
+    }
+    return '';
   }
 
   /**
@@ -482,7 +713,8 @@
 
       const titleEl = document.createElement('div');
       titleEl.className = 'group-title';
-      titleEl.innerHTML = `<span>${group.prizeName}</span><span>(${group.items.length} 位)</span>`;
+      titleEl.appendChild(createTextElement('span', '', group.prizeName));
+      titleEl.appendChild(createTextElement('span', '', `(${group.items.length} 位)`));
       groupEl.appendChild(titleEl);
 
       const listEl = document.createElement('div');
@@ -491,20 +723,32 @@
       group.items.forEach(item => {
         const itemEl = document.createElement('div');
         itemEl.className = 'winner-item';
-        const metaParts = [item.department, item.grade, item.winnerId ? '#' + item.winnerId : ''].filter(Boolean).join(' · ');
-        itemEl.innerHTML = `
-          <div>
-            <div class="winner-item-name">${item.name}</div>
-            <div class="winner-item-meta">${metaParts}</div>
-          </div>
-          <div class="winner-item-time">${item.timestamp}</div>
-        `;
+        const metaParts = [item.department, item.grade, getDisplayId(item.keyType, item.identityValue)].filter(Boolean).join(' · ');
+
+        const infoEl = document.createElement('div');
+        infoEl.appendChild(createTextElement('div', 'winner-item-name', item.name));
+        infoEl.appendChild(createTextElement('div', 'winner-item-meta', metaParts));
+        const statusTag = getWinnerStatusTag(item);
+        if (statusTag) {
+          infoEl.appendChild(createTextElement('div', 'winner-item-status', statusTag));
+        }
+
+        itemEl.appendChild(infoEl);
+        itemEl.appendChild(createTextElement('div', 'winner-item-time', item.timestamp));
         listEl.appendChild(itemEl);
       });
 
       groupEl.appendChild(listEl);
       dom.winnersListContainer.appendChild(groupEl);
     });
+  }
+
+  // 姓名、獎品名稱來自表單與試算表輸入，一律以 textContent 寫入
+  function createTextElement(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    el.textContent = text;
+    return el;
   }
 
   /**
@@ -516,18 +760,21 @@
       return;
     }
 
-    const headers = ['獎品名稱', '得獎學生姓名', '系所', '年級', '學號', '電子郵件', '中獎時間'];
+    const csvCell = value => `"${String(value || '').replace(/"/g, '""')}"`;
+    const headers = ['獎品名稱', '得獎者姓名', '系所', '年級', '識別方式', '識別值', '系統識別碼', '電子郵件', '中獎時間'];
     const rows = state.winners.map(w => [
-      `"${(w.prizeName || '').replace(/"/g, '""')}"`,
-      `"${(w.name || '').replace(/"/g, '""')}"`,
-      `"${(w.department || '').replace(/"/g, '""')}"`,
-      `"${(w.grade || '').replace(/"/g, '""')}"`,
-      `"${(w.winnerId || '').replace(/"/g, '""')}"`,
-      `"${(w.email || '').replace(/"/g, '""')}"`,
-      `"${w.timestamp}"`
-    ]);
+      w.prizeName,
+      w.name,
+      w.department,
+      w.grade,
+      KEY_TYPE_LABELS[w.keyType] || '',
+      w.identityValue,
+      (w.rowUids || []).join(' '),
+      w.email,
+      w.timestamp
+    ].map(csvCell));
 
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    const csvContent = '﻿' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -570,6 +817,8 @@
     loadData,
     getPrizeQuotaStats,
     getEligibleParticipants,
+    isAlreadyWon,
+    migrateLegacyWinner,
     exportWinnersToCsv
   };
 

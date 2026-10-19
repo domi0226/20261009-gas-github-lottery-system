@@ -41,72 +41,27 @@ localStorage.setItem('lottery_gas_api_url', 'https://script.google.com/macros/s/
 ```json
 {
   "status": "success",
+  "schemaVersion": 2,
   "prizes": [
-    {
-      "id": "demo_p1",
-      "name": "頭獎：Apple iPad Air (256GB)",
-      "quota": 1,
-      "order": 1,
-      "description": "特獎校園高效學習首選"
-    },
-    {
-      "id": "demo_p2",
-      "name": "二獎：Sony 降噪藍牙耳機",
-      "quota": 2,
-      "order": 2,
-      "description": "專注讀書聽歌神器"
-    },
-    {
-      "id": "demo_p3",
-      "name": "三獎：校園書局與百貨禮券 $2000",
-      "quota": 5,
-      "order": 3,
-      "description": "購書文具實用好禮"
-    },
-    {
-      "id": "demo_p4",
-      "name": "幸運獎：星巴克飲品兌換券",
-      "quota": 10,
-      "order": 4,
-      "description": "期中期末暖心咖啡"
-    }
+    { "id": "prize-name:頭獎:appleipadair(256gb)", "name": "頭獎：Apple iPad Air (256GB)", "quota": 1, "order": 1, "description": "特獎校園高效學習首選" },
+    { "id": "prize:P02", "name": "二獎：Sony 降噪藍牙耳機", "quota": 2, "order": 2, "description": "專注讀書聽歌神器" }
   ],
   "participants": [
     {
-      "id": "B11902001",
-      "name": "陳冠宇",
-      "department": "資訊工程學系",
-      "grade": "大三",
-      "email": "b11902001@school.edu.tw"
+      "key": "sid:B11902001", "keyType": "sid", "rowUids": ["5466bfc9-18ec-40f6-88c3-7b149b0d8ffb"],
+      "studentId": "B11902001", "eventCode": "", "phoneMasked": "",
+      "name": "陳冠宇", "department": "資訊工程學系", "grade": "大三", "email": "b11902001@school.edu.tw",
+      "flags": [], "duplicateCount": 1
     },
     {
-      "id": "B12703015",
-      "name": "林若晴",
-      "department": "財務金融學系",
-      "grade": "大二",
-      "email": "b12703015@school.edu.tw"
-    },
-    {
-      "id": "B10102033",
-      "name": "張凱翔",
-      "department": "外國語文學系",
-      "grade": "大四",
-      "email": "b10102033@school.edu.tw"
-    },
-    {
-      "id": "B13501008",
-      "name": "黃子庭",
-      "department": "生物機電學系",
-      "grade": "大一",
-      "email": "b13501008@school.edu.tw"
-    },
-    {
-      "id": "R12521019",
-      "name": "吳家瑋",
-      "department": "電機工程研究所",
-      "grade": "碩二",
-      "email": "r12521019@school.edu.tw"
+      "key": "tel:3f9a0c1d2e4b5a67", "keyType": "tel", "rowUids": ["9792b47d-661d-471d-bd4f-6bd208f33829"],
+      "studentId": "", "eventCode": "", "phoneMasked": "0912-***-678",
+      "name": "陳冠宇", "department": "企業管理學系", "grade": "大一", "email": "",
+      "flags": [], "duplicateCount": 1
     }
+  ],
+  "warnings": [
+    { "type": "shared_phone", "message": "共用同一手機號碼：林小美、林大明，已視為不同人。", "rows": [17, 18] }
   ]
 }
 ```
@@ -115,6 +70,27 @@ localStorage.setItem('lottery_gas_api_url', 'https://script.google.com/macros/s/
 
 | 區塊 | 欄位名稱 | 型別 | 必填 | 說明與呈現位置 |
 | :--- | :--- | :---: | :---: | :--- |
+| **prizes** | `id` | String | 是 | 獎品唯一識別碼，由「獎品代碼」（`prize:P02`）或獎品名稱（`prize-name:...`）產生，與列序無關 |
+| | `name` | String | 是 | 獎品完整名稱（呈現於下拉選單、看版與中獎名冊） |
+| | `quota` | Number | 是 | 獎品總配額名額數量（抽完時按鈕自動鎖定） |
+| | `order` | Number | 否 | 排序優先序（數字越小越優先） |
+| | `description` | String | 否 | 獎品備註說明（呈現於獎品看版下方） |
+| **participants** | `key` | String | 是 | 參加者識別鍵，依優先序：學號 `sid:` > 活動識別碼 `code:` > 手機 `tel:`（加鹽雜湊）> 系統識別碼 `row:` |
+| | `keyType` | String | 是 | `sid`／`code`／`tel`／`row` |
+| | `rowUids` | String[] | 是 | 此人所有填答列的系統識別碼（重複報名合併後可能多筆），用於中獎紀錄對應 |
+| | `name` | String | 是 | 姓名（抽獎舞台中央大字體呈現；不作為識別依據） |
+| | `department` | String | 是 | 就讀學系/研究所（抽獎舞台與名冊次標題） |
+| | `grade` | String | 是 | 年級別，如大一、大二、大三、大四、碩一、碩二 |
+| | `studentId` | String | 否 | 正規化後的學號 |
+| | `eventCode` | String | 否 | 正規化後的活動識別碼 |
+| | `phoneMasked` | String | 否 | 遮罩後的手機號碼（如 `0912-***-678`），API 不回傳完整號碼 |
+| | `email` | String | 否 | 聯絡信箱（匯出 CSV 時提供中獎名單核對） |
+| | `flags` | String[] | 否 | `duplicate`、`shared_phone`、`suspected_duplicate`、`no_alt_id`、`phone_invalid` |
+| **warnings** | `type` / `message` / `rows` | Object[] | 否 | 名單識別提醒（重複報名、學號衝突、共用號碼等），`rows` 為試算表列號 |
+
+> 識別規則詳見 [gas/README.md](gas/README.md) 的「參加者身分識別規則」。
+
+--- | :--- | :---: | :---: | :--- |
 | **prizes** | `id` | String | 是 | 獎品唯一識別碼（如 `demo_p1` 或 `prize_1`） |
 | | `name` | String | 是 | 獎品完整名稱（呈現於下拉選單、看版與中獎名冊） |
 | | `quota` | Number | 是 | 獎品總配額名額數量（抽完時按鈕自動鎖定） |
@@ -130,7 +106,7 @@ localStorage.setItem('lottery_gas_api_url', 'https://script.google.com/macros/s/
 
 ### 3. 一鍵體驗展示模式 (Demo Mode)
 
-若尚未建立 Google 試算表或處於離線環境，可直接點擊首頁右上角 **「📊 載入展示資料」** 按鈕，系統會立即注入上述 `DEMO_DATA`，包含 4 項獎品與 15 位各系所學生名冊，方便快速測試開獎動畫、獎品切換與 CSV 匯出功能。
+若尚未建立 Google 試算表或處於離線環境，可直接點擊首頁右上角 **「📊 載入展示資料」** 按鈕，系統會立即注入上述 `DEMO_DATA`，包含 4 項獎品與 20 位參加者（含無學號、同名不同人、共用手機號碼等情境），方便快速測試開獎動畫、獎品切換與 CSV 匯出功能。
 
 ---
 
@@ -141,7 +117,7 @@ localStorage.setItem('lottery_gas_api_url', 'https://script.google.com/macros/s/
 3. **獎品彈性切換**：下拉選單即時切換抽獎品項，動態呈現各獎項之總額、已抽出與剩餘名額。
 4. **炫麗抽獎舞台**：高對比慶祝視覺、流暢隨機滾輪動畫，並確保不重複中獎。
 5. **中獎名單防遺失**：中獎結果即時存入瀏覽器 `localStorage`，誤觸重新整理也不會遺失開獎進度。
-6. **一鍵匯出 CSV**：活動結束後可一鍵下載含獎項、學生姓名、系所、年級、學號與中獎時間的名冊。
+6. **一鍵匯出 CSV**：活動結束後可一鍵下載含獎項、姓名、系所、年級、識別方式與識別值（學號／活動碼／遮罩手機）、系統識別碼與中獎時間的名冊。
 7. **開箱即測 Demo 模式**：內建大學生展示假資料，未連線前即可點擊「載入展示資料」體驗完整流程。
 
 ---

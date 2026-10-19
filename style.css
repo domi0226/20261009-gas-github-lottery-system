@@ -458,3 +458,34 @@ button {
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.4);
 }
+
+/* Identity Warnings */
+.identity-warnings {
+  margin-top: 24px;
+}
+
+.identity-warnings summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.identity-warnings-list {
+  margin-top: 12px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.winner-item-status {
+  font-size: 0.8rem;
+  color: #fca5a5;
+  margin-top: 2px;
+}
+
+.identity-warnings.hidden {
+  display: none;
+}
